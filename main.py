@@ -3,7 +3,7 @@ import os
 import json
 import re
 from dotenv import load_dotenv
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup 
 from datetime import datetime
 
 # -----------------------------
