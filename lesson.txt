@@ -1,0 +1,240 @@
+Email Automation with SMTP — Secure Sending Using Gmail & Python
+STEP 1 — What is SMTP and Why Does It Exist
+
+Every email you have ever sent in your life — from Gmail, from Outlook, from your college email — traveled over a protocol called SMTP. SMTP stands for Simple Mail Transfer Protocol. It is a set of rules that two mail servers follow when transferring an email from one place to another.
+
+Think of it like the postal system. When you write a letter, you hand it to a postman. The postman follows a standard process — picks it up, routes it through the post office, delivers it to the destination. SMTP is that standard process, but for emails over the internet.
+
+In your project, Python acts as the person handing the letter to the postman. Python uses a built-in library called smtplib to connect to Gmail's mail server, hand over the email, and Gmail takes care of delivering it to the recipient's inbox. You never build the delivery system yourself. You just hand the message to Gmail's SMTP server and it does the rest.
+
+STEP 2 — Gmail SMTP Settings and What They Mean
+
+To send email through Gmail, your code needs to know three things — where Gmail's mail server is, which port to connect on, and how to prove you are allowed to use the account.
+
+In your email_service.py, these are set inside the init method:
+
+
+
+
+
+Python
+Copy
+def __init__(self):
+    self.smtp_host = "smtp.gmail.com"
+    self.smtp_port = 465
+    self.sender_email = os.getenv("SMTP_EMAIL")
+    self.sender_password = os.getenv("SMTP_PASSWORD")
+smtp_host is "smtp.gmail.com". This is the address of Gmail's outgoing mail server. Just like a website has a domain name, Gmail's SMTP server has this hostname. Your Python code will make a network connection to this address.
+
+smtp_port is 465. A port is like a specific door on a building. The building is smtp.gmail.com. Port 465 is the SSL door — the secure encrypted entrance. When you connect on port 465, the entire conversation between your Python code and Gmail's server is encrypted from the very first byte. Nobody listening on the network can read your password or email content.
+
+sender_email and sender_password are loaded from your .env file using os.getenv(). They are not written directly in the code. This is a security decision explained in detail in Step 4.
+
+STEP 3 — Why App Password Instead of Your Real Password
+
+This is one of the most important concepts in Day 9 and it is a real-world security practice used by professional developers.
+
+Google's security policy blocks regular password logins from scripts and programs. If you try to use your normal Gmail password in a Python script, Google will block the login attempt. This is intentional — Google does not want third-party programs logging into your full account with your main password.
+
+Instead, Google gives you something called an App Password. An App Password is a special 16-character password that Google generates specifically for use in applications. It is completely separate from your main Google password.
+
+Here is why this matters. Your main Google password gives full access to everything — Gmail, Google Drive, Google Photos, your entire Google account. If a script using your main password gets hacked or your code gets leaked online, the attacker has access to your entire Google account.
+
+An App Password only gives access to one thing — sending emails through SMTP. It cannot log into Gmail.com. It cannot access Google Drive. It cannot change your account settings. And most importantly, if your .env file ever gets leaked or your code gets pushed to GitHub accidentally, you can go to your Google account, click one button, and revoke just that App Password. Your main Google account is completely untouched. You create a new App Password, update your .env file, and the project keeps running.
+
+This is why the security rule exists — App Password only, never your main password.
+
+STEP 4 — Where Credentials Live and Why
+
+Look at how email_service.py loads the credentials:
+
+
+
+
+
+Code
+Copy
+self.sender_email = os.getenv("SMTP_EMAIL")
+self.sender_password = os.getenv("SMTP_PASSWORD")
+os.getenv() reads values from environment variables. The .env file at the root of your project holds these values:
+
+
+
+
+
+Code
+Copy
+SMTP_EMAIL=your_gmail@gmail.com
+SMTP_PASSWORD=xxxx xxxx xxxx xxxx
+load_dotenv() at the top of email_service.py reads this file and loads all those values into environment variables that os.getenv() can then access.
+
+The reason credentials live in .env and not directly in the Python file is simple. If you write your password directly in the code like this:
+
+
+
+
+
+Code
+Copy
+self.sender_password = "abcd efgh ijkl mnop"
+And you push your project to GitHub, every single person who can see your repository now has your App Password. Even if you delete it later, GitHub keeps the history. The password is already exposed.
+
+By keeping it in .env and adding .env to .gitignore, the password file never gets uploaded to GitHub. The code is safe to share. The credentials stay on your machine only.
+
+STEP 5 — The validate_email Function
+
+The first function in EmailService is:
+
+
+
+
+
+Python
+Copy
+def validate_email(self, email: str) -> bool:
+    pattern = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+    return re.match(pattern, email) is not None
+This function checks whether a given string looks like a valid email address before trying to connect to Gmail.
+
+The pattern is a regular expression — a way of describing what a valid email format looks like. Breaking it down: it expects one or more valid characters before the @ symbol, then the @ symbol, then a domain name, then a dot, then a TLD like .com or .in.
+
+So "karthikd@isparklearning.com" passes. "notanemail" fails immediately because there is no @ symbol. "karthikd@" fails because there is no domain after the @. "@gmail.com" fails because there are no characters before the @.
+
+Why check this before trying to send? Because opening an SMTP connection to Gmail takes time — a network round trip, an SSL handshake, authentication. If the email address is obviously invalid, there is no point spending that time and those resources. The validation catches bad addresses in under 1 millisecond without touching the network at all.
+
+This function returns True if the format is valid and False if it is not. send_email() calls this first and exits immediately if it returns False.
+
+STEP 6 — The send_email Function, Part One: The Checks
+
+
+
+
+
+Python
+Copy
+def send_email(self, recipient: str, subject: str, body: str) -> bool:
+    if not self.validate_email(recipient):
+        print(f"Invalid recipient email: {recipient}")
+        return False
+
+    if not self.sender_email or not self.sender_password:
+        print("SMTP credentials missing from environment variables.")
+        return False
+The function takes three parameters — recipient (who to send to), subject (the subject line), and body (the email content). It returns True if the email was sent successfully and False if anything went wrong.
+
+The first check calls validate_email on the recipient. If it fails, the function prints a message and immediately returns False. No network connection is opened.
+
+The second check verifies that SMTP_EMAIL and SMTP_PASSWORD actually exist. If someone forgot to add them to the .env file, os.getenv() returns None. The check catches this and exits with a clear error message instead of crashing later with a confusing error when trying to log in.
+
+These two checks are defense in depth — catching problems at the earliest and cheapest possible point before any real work is done.
+
+STEP 7 — The send_email Function, Part Two: Building the Email
+
+
+
+
+
+Code
+Copy
+message = MIMEMultipart()
+message["From"] = self.sender_email
+message["To"] = recipient
+message["Subject"] = subject
+
+message.attach(MIMEText(body, "plain"))
+A plain text string is not a valid email. The SMTP protocol expects emails in a specific format called MIME — Multipurpose Internet Mail Extensions. This format defines how headers like From, To, and Subject are structured, and how the body is attached.
+
+MIMEMultipart() creates an empty email container. Think of it as an empty envelope with sections for different parts. Then you fill in the headers — From is your Gmail address, To is the recipient, Subject is the subject line.
+
+MIMEText(body, "plain") creates the body part of the email. The "plain" argument means this is plain text, not HTML. If you wanted formatted HTML emails with bold text and colors, you would use "html" instead. For this project plain text is sufficient.
+
+message.attach(body_part) attaches the body to the container. The MIME structure now has all the pieces. The reason for this container-and-attach pattern is that a real email can have multiple parts — a plain text version, an HTML version, and file attachments all in one message. The MIMEMultipart container holds all of them.
+
+STEP 8 — The send_email Function, Part Three: Connecting and Sending
+
+
+
+
+
+Code
+Copy
+try:
+    with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port) as server:
+        server.login(self.sender_email, self.sender_password)
+        server.send_message(message)
+    
+    print(f"Email successfully sent to {recipient}")
+    return True
+This is where the actual network communication happens.
+
+smtplib.SMTP_SSL("smtp.gmail.com", 465) opens a TCP network connection to Gmail's mail server on port 465 and immediately wraps it in SSL encryption. From this point, everything exchanged between your Python code and Gmail's server is encrypted. Your App Password is never sent in plain text over the internet.
+
+The with statement ensures the connection is always closed cleanly when the block ends, even if an error occurs partway through. You don't need to manually close the connection.
+
+server.login(self.sender_email, self.sender_password) authenticates with Gmail using your email address and App Password. Gmail verifies these credentials. If they are wrong — wrong App Password, wrong email, expired App Password — Gmail raises an SMTPAuthenticationError right here and nothing gets sent.
+
+server.send_message(message) transmits the MIME-formatted email to Gmail's server. Gmail accepts it, looks up where to deliver it, and handles the rest. This call returns after Gmail acknowledges receipt — not after the email lands in the recipient's inbox. The actual delivery to the recipient happens on Gmail's side after this.
+
+After a successful send, the function prints a confirmation and returns True. This True value goes back to main.py which then logs "Successfully sent email to {recipient}" through agent_logger.
+
+STEP 9 — Error Handling
+
+
+
+
+
+Code
+Copy
+except smtplib.SMTPAuthenticationError:
+    print("Authentication failed. Did you use an 'App Password'?")
+    return False
+except Exception as e:
+    print(f"Failed to send email: {e}")
+    return False
+There are two except blocks. The first specifically catches SMTPAuthenticationError. This is the most common error beginners face — they put their main Gmail password instead of an App Password, or the App Password was typed wrong. The specific error message "Did you use an App Password?" directly guides the developer to the exact fix.
+
+The second except catches everything else — network failures, connection timeouts, Gmail being temporarily unavailable, any other unexpected error. It prints the error details so you can diagnose what went wrong.
+
+Both blocks return False. The caller — which is process_and_send() in main.py — receives False and the agent_logger records "Failed to send email." The server keeps running. This is how you write a reliable service — specific errors get specific messages, all errors are handled, nothing crashes the application.
+
+STEP 10 — The Singleton at the Bottom
+
+
+
+
+
+Code
+Copy
+mailer = EmailService()
+This single line at the bottom of email_service.py creates one instance of EmailService when the module is first imported. In main.py you import it as:
+
+
+
+
+
+Python
+Copy
+from services.email_service import mailer
+This means every time main.py needs to send an email, it uses the same mailer object. The init reads the credentials once. The smtp_host and smtp_port are set once. You are not reading the .env file on every single email send — it was read when mailer was first created at server startup. This is the same singleton pattern used by rag_assistant and ai_assistant.
+
+STEP 11 — The Complete Flow When an Email is Sent
+
+Putting it all together, here is exactly what happens from the moment main.py calls mailer.send_email() to the email landing in the inbox:
+
+main.py calls mailer.send_email(data.recipient_email, subject, body). email_service.py receives the three arguments. validate_email() checks the recipient format using regex — done in under 1ms with no network call. The code checks that SMTP_EMAIL and SMTP_PASSWORD are not None. MIMEMultipart() creates the email container and sets From, To, Subject headers. MIMEText creates the body and attaches it. smtplib.SMTP_SSL() opens an encrypted TCP connection to smtp.gmail.com on port 465. server.login() authenticates with the App Password. server.send_message() hands the MIME message to Gmail's server. The with block ends and the connection closes cleanly. The function prints "Email successfully sent" and returns True back to main.py. main.py's agent_logger records the success. Gmail's own infrastructure delivers the message to the recipient's inbox over the next few seconds.
+
+STEP 12 — Security Rules and Why Each One Exists
+
+The security rules in Day 9 are not just good habits — each one prevents a specific real-world problem.
+
+Credentials always in .env — prevents passwords from appearing in your source code files which get shared, reviewed, and pushed to GitHub.
+
+.env always in .gitignore — prevents the .env file itself from being accidentally committed to git. Even if you forget, .gitignore catches it.
+
+Never commit credentials to GitHub — GitHub is public or semi-public. Once a secret is in git history, it is very hard to fully remove. Prevention is the only reliable approach.
+
+Use App Password not your main password — limits the damage if credentials are exposed. An attacker with an App Password can only send emails. An attacker with your main password owns your entire Google account.
+
+Rotate App Password if code is ever shared — if you ever accidentally expose the App Password, revoke it at myaccount.google.com/apppasswords immediately and generate a new one. The project keeps working with a 2-minute update to your .env file.
+
+These five rules together form a security layer around the most sensitive part of your project — the credentials that give access to your Gmail account.
